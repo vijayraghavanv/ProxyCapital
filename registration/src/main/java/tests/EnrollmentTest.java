@@ -13,6 +13,7 @@ public class EnrollmentTest {
     public static void main(String[] args) {
         Organization org = new Organization("cts", "cts");
         OrganizationUser admin = new OrganizationUser("Admin@CTS", "cts");
+        org.setPeerCount(2);
         admin.setMspId("cts");
         admin.setEnrollmentSecret("mysecret");
         admin.setAffiliation(org.getName());

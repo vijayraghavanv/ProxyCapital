@@ -16,37 +16,32 @@ import org.hyperledger.fabric_ca.sdk.exception.InfoException;
 import org.hyperledger.fabric_ca.sdk.exception.InvalidArgumentException;
 import org.lightcouch.CouchDbClient;
 import org.lightcouch.CouchDbProperties;
+import org.lightcouch.NoDocumentException;
 import org.proxycapital.EB5.Utils.Utils;
+import org.proxycapital.EB5.exceptions.EB5Exceptions;
 import org.proxycapital.Organization;
 import org.proxycapital.OrganizationUser;
-import org.proxycapital.EB5.exceptions.EB5Exceptions;
 
-import javax.net.ssl.*;
 import java.io.*;
 import java.lang.reflect.InvocationTargetException;
 import java.net.MalformedURLException;
-import java.security.*;
-import java.security.cert.Certificate;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
-import java.util.Collection;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 
 public class RegisterOrganization {
     private static final int DB_PORT = 5984;
     private static final int MAX_CONNECTIONS = 100;
-    private static final String USERNAME = "admin";
-    private static final String PASSWORD = "password";
+    private static final String DB_USERNAME = "admin";
+    private static final String DB_PASSWORD = "password";
     private static final Log logger = LogFactory.getLog(RegisterOrganization.class);
     private static final String ORDERER_HOME = System.getProperty("user.home") + "/cryptoconfig/ordererOrganizations";
     private static final String PEER_HOME = System.getProperty("user.home") + "/cryptoconfig/peerOrganizations";
     private static final String DB_NAME = "userdb";
     private static final String DB_PROTOCOL = "http";
     private static final String DB_HOST = "127.0.0.1";
-    private boolean isTLSEnabled = false;
     private final Properties props = new Properties();
     private final File userHomeDir = FileUtils.getUserDirectory();
+    private final CouchDbProperties couchDbProperties = new CouchDbProperties();
+    private boolean isTLSEnabled = false;
     private File cryptoDir = null;
     private Organization org = null;
     private Enrollment bootstrapAdminEnrollment = null;
@@ -56,13 +51,15 @@ public class RegisterOrganization {
     private String serverCert = null;
     private OrganizationUser bootstrapAdmin = null;
     private CouchDbClient dbClient = null;
-    private final CouchDbProperties couchDbProperties = new CouchDbProperties();
 
     /**
-     * Use when TLS is enabled
+     * Register an Organization and generate MSPs for the org. A folder "cryptoconfig" is generated in the home
+     * directory and \n
+     * all artifacts are stored inside this folder.
      *
-     * @param certFile
-     * @param isTLSEnabled
+     * @param certFile     CA Server's certificate file. If TLS is enabled, it is assumed that the user has received
+     *                     this from Proxy.  Pass null if tls is not enabled
+     * @param isTLSEnabled Set to true if TLS is enabled
      * @throws EB5Exceptions
      */
     public RegisterOrganization(
@@ -74,65 +71,63 @@ public class RegisterOrganization {
         this.caURL = caURL;
         this.caName = caName;
         this.caHostName = caHostName;
+        Utils.createDirectory(userHomeDir.getAbsolutePath(), "cryptoconfig");
+        cryptoDir = new File(userHomeDir.getAbsolutePath() + File.separator + "cryptoconfig");
         initDB();
-        if (isTLSEnabled && !certFile.exists()) {
-            throw new EB5Exceptions("Certificate File missing");
+        if (certFile == null && !isTLSEnabled) {
+            this.isTLSEnabled = false;
+            try {
+                //Read certificate from the client
+                serverCert = org.getClient().info().getCACertificateChain();
+            }
+            catch (InfoException | InvalidArgumentException e) {
+                logger.debug(e.getMessage());
+                throw new EB5Exceptions(e.getMessage());
+            }
         }
         else {
-            props.setProperty("pemFile", certFile.getAbsolutePath());
-        }
-        Utils.createDirectory(userHomeDir.getAbsolutePath(), "cryptoconfig");
-        cryptoDir = new File(userHomeDir.getAbsolutePath() + "/" + "cryptoconfig");
-        setupDirectories();
-        try {
-            if (isTLSEnabled) {
-                serverCert = FileUtils.readFileToString(certFile);
+            if (isTLSEnabled && !certFile.exists()) {
+                throw new EB5Exceptions("Certificate File missing");
             }
             else {
-                serverCert = org.getClient().info().getCACertificateChain();
-//                serverCert = getServerCertificate();
+                props.setProperty("pemFile", certFile.getAbsolutePath());
+                try {
+                    if (isTLSEnabled) {
+                        serverCert = FileUtils.readFileToString(certFile);
+                    }
+                    else {
+                        serverCert = org.getClient().info().getCACertificateChain();
+                    }
+                }
+                catch (IOException | InfoException | InvalidArgumentException e) {
+                    logger.debug(e.getMessage());
+                    throw new EB5Exceptions(e.getMessage());
+                }
             }
         }
-        catch (IOException | InfoException | InvalidArgumentException e) {
-            logger.debug(e.getMessage());
-            throw new EB5Exceptions(e.getMessage());
-        }
+        setupDirectories();
     }
 
     /**
-     * Use this constructor when TLS is disabled.
+     * Initialize couchDB
      */
-    public RegisterOrganization(Organization org, String caURL, String caHostName) throws EB5Exceptions {
-        this.isTLSEnabled = false;
-        this.org = org;
-        this.caURL = caURL;
-        this.caHostName = caHostName;
-        initDB();
-        Utils.createDirectory(userHomeDir.getAbsolutePath(), "cryptoconfig");
-        cryptoDir = new File(userHomeDir.getAbsolutePath() + "/" + "cryptoconfig");
-        setupDirectories();
-        try {
-            serverCert = org.getClient().info().getCACertificateChain();
-        }
-        catch (InfoException | InvalidArgumentException e) {
-            logger.debug(e.getMessage());
-            throw new EB5Exceptions(e.getMessage());
-        }
-//        serverCert = getServerCertificate();
-    }
-
     private void initDB() {
         couchDbProperties.setDbName(DB_NAME);
         couchDbProperties.setProtocol(DB_PROTOCOL);
         couchDbProperties.setHost(DB_HOST);
-        couchDbProperties.setUsername(USERNAME);
-        couchDbProperties.setPassword(PASSWORD);
+        couchDbProperties.setUsername(DB_USERNAME);
+        couchDbProperties.setPassword(DB_PASSWORD);
         couchDbProperties.setPort(DB_PORT);
         couchDbProperties.setMaxConnections(MAX_CONNECTIONS);
         couchDbProperties.setCreateDbIfNotExist(true);
         dbClient = new CouchDbClient(couchDbProperties);
     }
 
+    /**
+     * Set up directories under cryptoconfig.
+     *
+     * @throws EB5Exceptions
+     */
     private void setupDirectories() throws EB5Exceptions {
         if (org == null) {
             throw new EB5Exceptions("Organization has not been initialized. Please initialize the organization");
@@ -174,72 +169,53 @@ public class RegisterOrganization {
         }
     }
 
-    /**
-     * Gets the servers certificate. Useful only for non TLS connections.
-     *
-     * @return
-     * @throws EB5Exceptions
-     */
-    private String getServerCertificate() throws EB5Exceptions {
-        String hostname = caHostName;
-        SSLSocketFactory factory = HttpsURLConnection.getDefaultSSLSocketFactory();
-        SSLSocket socket;
+    private void createTLSStructure(String path, String host, Enrollment enrollment) throws EB5Exceptions {
+        BufferedWriter bw, bw1, bw2;
+        String rootPath = path + "/" + host;
         try {
-            socket = (SSLSocket) factory.createSocket(hostname, 7054);
-            socket.startHandshake();
-            Certificate[] certs = socket.getSession().getPeerCertificates();
-            Certificate cert = certs[0];
-            PublicKey key = cert.getPublicKey();
+            FileUtils.forceMkdir(new File(rootPath + "/" + "tls"));
+            FileUtils.forceMkdir(new File(rootPath + "/" + "msp"));
+            FileUtils.forceMkdir(new File(rootPath + "/msp/" + "keystore"));
+            FileUtils.forceMkdir(new File(rootPath + "/msp/" + "tlscacerts"));
+            FileUtils.forceMkdir(new File(rootPath + "/msp/" + "signcerts"));
+            FileUtils.forceMkdir(new File(rootPath + "/msp/" + "cacerts"));
+            bw = new BufferedWriter(new FileWriter(rootPath + "/tls/server.crt"));
+            bw1 = new BufferedWriter(new FileWriter(rootPath + "/tls/server.key"));
+            bw2 = new BufferedWriter(new FileWriter(rootPath + "/msp/signcerts/" + host + "-cert.pem"));
+            bw.write(enrollment.getCert());
+            bw2.write(enrollment.getCert());
             StringWriter pemsWriter = new StringWriter();
             JcaPEMWriter pemWriter = new JcaPEMWriter(pemsWriter);
-            pemWriter.writeObject(key);
-            logger.debug("The server public key is: " + pemsWriter.toString());
-            socket.close();
+            pemWriter.writeObject(enrollment.getKey());
             pemWriter.flush();
             pemWriter.close();
-            return pemsWriter.toString();
+            bw1.write(pemsWriter.toString());
+            FileUtils.copyFile(new File(rootPath + "/tls/server.key"), new File(rootPath + "/msp/keystore/server.key"));
+            storeCaCertFile(rootPath + "/msp/tlscacerts/tlsca." + org.getName() + "-cert.pem");
+            storeCaCertFile(rootPath + "/msp/cacerts/" + org.getName() + "-cert.pem");
         }
         catch (IOException e) {
             logger.debug(e.getMessage());
-            logger.debug("cert likely not found in keystore, will pull cert...");
-        }
-        try {
-            KeyStore ks = KeyStore.getInstance(KeyStore.getDefaultType());
-            char[] password = "changeit".toCharArray();
-            ks.load(null, password);
-            SSLContext context = SSLContext.getInstance("TLS");
-            TrustManagerFactory tmf =
-                    TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
-            tmf.init(ks);
-            X509TrustManager defaultTrustManager = (X509TrustManager) tmf.getTrustManagers()[0];
-            SavingTrustManager tm = new SavingTrustManager(defaultTrustManager);
-            context.init(null, new TrustManager[]{tm}, null);
-            factory = context.getSocketFactory();
-            socket = (SSLSocket) factory.createSocket(hostname, 7054);
-            try {
-                socket.startHandshake();
-            }
-            catch (SSLException e) {
-                //we should get to here
-            }
-            X509Certificate[] chain = tm.chain;
-            if (chain == null) {
-                System.out.println("Could not obtain server certificate chain");
-                return null;
-            }
-            X509Certificate cert = chain[0];
-            String alias = hostname;
-            ks.setCertificateEntry(alias, cert);
-            StringWriter sw = new StringWriter();
-            JcaPEMWriter pemWriter = new JcaPEMWriter(sw);
-            pemWriter.writeObject(cert);
-            pemWriter.flush();
-            pemWriter.close();
-            return sw.toString();
-        }
-        catch (IOException | CertificateException | KeyStoreException | NoSuchAlgorithmException | KeyManagementException e) {
-            logger.debug(e.getMessage());
             throw new EB5Exceptions(e.getMessage());
+        }
+    }
+
+    private void storeCaCertFile(String path) throws EB5Exceptions {
+        if (serverCert != null) {
+            File caCertFile = new File(path);
+            try {
+                FileWriter fw = new FileWriter(caCertFile);
+                fw.write(serverCert);
+                fw.flush();
+                fw.close();
+            }
+            catch (IOException e) {
+                logger.debug(e.getMessage());
+                throw new EB5Exceptions(e.getMessage());
+            }
+        }
+        else {
+            throw new EB5Exceptions("Unable to fetch server certificate");
         }
     }
 
@@ -253,7 +229,8 @@ public class RegisterOrganization {
      */
     private void createMSPStructure(String path, String userName, Enrollment enrollment) throws EB5Exceptions {
         BufferedWriter bw, bw1;
-        bw = bw1 = null;
+        bw = null;
+        bw1 = null;
         Utils.createDirectory(path + "/users/", userName);
         Utils.createDirectory(path + "/users/" + userName, "msp");
         String mspPath = path + "/users/" + userName + "/msp";
@@ -261,9 +238,10 @@ public class RegisterOrganization {
         Utils.createDirectory(mspPath, "signcerts");
         Utils.createDirectory(mspPath, "keystore");
         Utils.createDirectory(mspPath, "cacerts");
+        Utils.createDirectory(mspPath, "intermediatecerts");
         try {
-            bw = new BufferedWriter(new FileWriter(mspPath + "/signcerts/cert.pem"));
-            String certPEM = bootstrapAdminEnrollment.getCert();
+            bw = new BufferedWriter(new FileWriter(mspPath + "/signcerts/" + userName + "cert.pem"));
+            String certPEM = enrollment.getCert();
             bw.write(certPEM);
             bw1 = new BufferedWriter(new FileWriter(keyStorePath + "/" + userName + "_sk"));
             StringWriter pemsWriter = new StringWriter();
@@ -272,17 +250,7 @@ public class RegisterOrganization {
             pemWriter.flush();
             pemWriter.close();
             bw1.write(pemsWriter.toString());
-            if (serverCert != null) {
-                String caCertFileName = mspPath + "/cacerts/ca-cert.pem";
-                File caCertFileDest = new File(caCertFileName);
-                FileWriter fw = new FileWriter(caCertFileDest);
-                fw.write(serverCert);
-                fw.flush();
-                fw.close();
-            }
-            else {
-                throw new EB5Exceptions("Unable to  fetch Server certificate");
-            }
+            storeCaCertFile(mspPath + "/cacerts/" + org.getName() + "-cert.pem");
 //            File caCertFileSource=new File()
         }
         catch (IOException e) {
@@ -303,9 +271,6 @@ public class RegisterOrganization {
                 throw new EB5Exceptions(e.getMessage());
             }
         }
-        Utils.createDirectory(mspPath, "cacerts");
-        Utils.createDirectory(mspPath, "keystore");
-        Utils.createDirectory(mspPath, "intermediatecerts");
     }
 
     public boolean isTLSEnabled() {
@@ -325,8 +290,8 @@ public class RegisterOrganization {
                 throw new EB5Exceptions("Org admin not set");
             }
             else {
-                createMSPStructure(path, "rootAdmin", bootstrapAdminEnrollment);
                 Enrollment nodeAdminEnrollment = registerAndEnrollUser(org.getAdminUser(), bootstrapAdmin);
+                org.getAdminUser().setEnrollment(nodeAdminEnrollment);
                 if (nodeAdminEnrollment != null) {
                     createMSPStructure(path, org.getAdminUser().getName(), nodeAdminEnrollment);
                 }
@@ -351,9 +316,69 @@ public class RegisterOrganization {
                 }
             }
         }
-
     }
 
+    private void generateTLS(String path, List hosts, String orgParam) throws EB5Exceptions {
+        EnrollmentRequest enrollmentRequestTLS = new EnrollmentRequest();
+        enrollmentRequestTLS.setProfile("tls");
+        for (final Object host : hosts) {
+            enrollmentRequestTLS.addHost(host.toString());
+        }
+        try {
+            Enrollment enrollment = org.getClient().enroll("admin", "adminpw", enrollmentRequestTLS);
+            createTLSStructure(path, orgParam, enrollment);
+        }
+        catch (EnrollmentException | InvalidArgumentException e) {
+            logger.debug(e.getMessage());
+            throw new EB5Exceptions(e.getMessage());
+        }
+    }
+
+    private void generateTLSForNodes() throws EB5Exceptions {
+        String orgDir;
+        if (org.hasOrderer()) {
+            orgDir = ORDERER_HOME + "/" + org.getName();
+            //Create ca root
+            ArrayList<String> hosts = new ArrayList<>(2);
+            hosts.add("root");
+            hosts.add("root");
+            generateTLS(orgDir, hosts, "ca");
+            //End CA Root creation
+            ArrayList<String> ordererHosts = new ArrayList<>(2);
+            String ordererName = "orderer" + "." + org.getName();
+            ordererHosts.add(ordererName);
+            ordererHosts.add("orderer");
+            String ordererOrgDir = orgDir + File.separator + "orderer";
+            generateTLS(ordererOrgDir, ordererHosts, ordererName);
+        }
+        if (org.hasPeers()) {
+            orgDir = PEER_HOME + "/" + org.getName();
+            //Create ca root
+            ArrayList<String> hosts = new ArrayList<>(2);
+            hosts.add("root");
+            hosts.add("root");
+            generateTLS(orgDir, hosts, "ca");
+            //End CA Root creation
+            int peerCount = org.getPeerCount();
+            while (peerCount > 0) {
+                peerCount--;
+                ArrayList<String> peerHosts = new ArrayList<>(2);
+                String peerName = "peer" + peerCount + "." + org.getName();
+                peerHosts.add(peerName);
+                peerHosts.add("peer" + peerCount);
+                String peerOrgDir = orgDir + File.separator + "peers";
+                generateTLS(peerOrgDir, peerHosts, peerName);
+            }
+        }
+        //Generate CA Root tls
+//        org.getClient().en
+    }
+
+    /**
+     * Generates and stores the MSP data for the organization.
+     *
+     * @throws EB5Exceptions
+     */
     public void generateMSP() throws EB5Exceptions {
         try {
             HFCAClient caClient = HFCAClient.createNewInstance(caName, caURL, props);
@@ -370,13 +395,19 @@ public class RegisterOrganization {
             }
             if (org.hasOrderer()) {
                 String path = ORDERER_HOME + "/" + org.getName();
+                createMSPStructure(path,
+                                   "rootAdmin",
+                                   bootstrapAdmin.getEnrollment());//Create root admin under orderers.
                 generateMSPForUsers(path);
             }
             if (org.hasPeers()) {
                 String path = PEER_HOME + "/" + org.getName();
-                createMSPStructure(path, "rootAdmin", bootstrapAdminEnrollment);
+                createMSPStructure(path,
+                                   "rootAdmin",
+                                   bootstrapAdmin.getEnrollment()); //Create root admin under peer directory.
                 generateMSPForUsers(path);
             }
+            generateTLSForNodes();
         }
         catch (MalformedURLException e) {
             logger.error("Wrong URL specified: " + caURL);
@@ -390,25 +421,31 @@ public class RegisterOrganization {
             logger.debug("Error in creating cryptosuite");
             throw new EB5Exceptions(e.getMessage());
         }
-        catch (InvocationTargetException | IllegalAccessException | org.hyperledger.fabric.sdk.exception.InvalidArgumentException | NoSuchMethodException | CryptoException | ClassNotFoundException e) {
+        catch (InvocationTargetException | IllegalAccessException | org.hyperledger.fabric.sdk.exception
+                .InvalidArgumentException | NoSuchMethodException | CryptoException | ClassNotFoundException e) {
             logger.debug(e.getMessage());
             throw new EB5Exceptions(e.getMessage());
         }
     }
 
     private void enrollBootStrapAdmin() throws EB5Exceptions {
-        bootstrapAdmin = new OrganizationUser("admin", org.getName());
-        bootstrapAdmin.setMspId(org.getMspID());
-        EnrollmentRequest enrollmentRequest = new EnrollmentRequest();
-        enrollmentRequest.addHost(caURL);
-        try {
-            bootstrapAdmin.setAffiliation(org.getName());
-            bootstrapAdminEnrollment = org.getClient().enroll(bootstrapAdmin.getName(), "adminpw");
-            bootstrapAdmin.setEnrollment(bootstrapAdminEnrollment);
+        bootstrapAdmin = restoreState("admin");
+        if (bootstrapAdmin == null) {
+            bootstrapAdmin = new OrganizationUser("admin", org.getName());
+            bootstrapAdmin.setMspId(org.getMspID());
+            try {
+                bootstrapAdmin.setAffiliation(org.getName());
+                bootstrapAdminEnrollment = org.getClient().enroll(bootstrapAdmin.getName(), "adminpw");
+                bootstrapAdmin.setEnrollment(bootstrapAdminEnrollment);
+            }
+            catch (EnrollmentException | InvalidArgumentException e) {
+                logger.debug(e.getMessage());
+                throw new EB5Exceptions(e.getMessage());
+            }
+            saveState(bootstrapAdmin);
         }
-        catch (EnrollmentException | InvalidArgumentException e) {
-            logger.debug(e.getMessage());
-            throw new EB5Exceptions(e.getMessage());
+        else {
+            bootstrapAdminEnrollment = bootstrapAdmin.getEnrollment();
         }
     }
 
@@ -440,10 +477,13 @@ public class RegisterOrganization {
                 return enrollment;
             }
             else {
-//                org.proxycapital.OrganizationUser u=dbClient.find(org.proxycapital.OrganizationUser.class,"4791ca3983054bf8a23cd20527a23140");
                 OrganizationUser u = restoreState(registreeUser.getName());
-               // logger.debug("The enrollment cert is: " + u.getEnrollment().getCert());
-                return u.getEnrollment();
+                if (u != null) {
+                    return u.getEnrollment();
+                }
+                else {
+                    return null;
+                }
             }
         }
         catch (Exception e) {
@@ -480,7 +520,13 @@ public class RegisterOrganization {
      * Restore the state of this user from the key value store (if found).  If not found, do nothing.
      */
     private OrganizationUser restoreState(String uid) {
-        JsonObject json = dbClient.find(JsonObject.class, uid);
+        JsonObject json = null;
+        try {
+            json = dbClient.find(JsonObject.class, uid);
+        }
+        catch (NoDocumentException e) {
+            logger.debug(String.format("Object not found $s", uid));
+        }
         if (null != json) {
             // The user was found in the key value store, so restore the
             // state.
@@ -499,29 +545,5 @@ public class RegisterOrganization {
             }
         }
         return null;
-    }
-
-    private static class SavingTrustManager implements X509TrustManager {
-        private final X509TrustManager tm;
-        private X509Certificate[] chain;
-
-        SavingTrustManager(X509TrustManager tm) {
-            this.tm = tm;
-        }
-
-        public X509Certificate[] getAcceptedIssuers() {
-            return new X509Certificate[0];
-        }
-
-        public void checkClientTrusted(X509Certificate[] chain, String authType)
-                throws CertificateException {
-            throw new UnsupportedOperationException();
-        }
-
-        public void checkServerTrusted(X509Certificate[] chain, String authType)
-                throws CertificateException {
-            this.chain = chain;
-            tm.checkServerTrusted(chain, authType);
-        }
     }
 }
