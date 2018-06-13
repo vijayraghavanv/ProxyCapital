@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="e49936e0-faea-497b-a7bb-66bee80088f2" name="BlockchainDev" url="http://52.38.138.54">
+        <fileTransfer host="52.38.138.54" port="22" privateKey="$USER_HOME$/Dropbox/Blockchain/Private Keys/VijayAWS.pem" accessType="SFTP" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" />
+          </advancedOptions>
+          <option name="port" value="22" />
+        </fileTransfer>
+      </webServer>
+      <webServer id="7d2ca1db-bebd-4746-a77c-b3ff6b71380b" name="PCPServer" url="http://52.72.49.19">
+        <fileTransfer host="52.72.49.19" port="22" privateKey="$PROJECT_DIR$/../../AWS/Keys/VijayNew.pem" accessType="SFTP" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" />
+          </advancedOptions>
+          <option name="port" value="22" />
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>

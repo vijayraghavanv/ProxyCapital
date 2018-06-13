@@ -10,8 +10,8 @@ import java.nio.file.Paths;
 
 public class EnrollmentTest {
     private static boolean orderer=false;
-    public static void main(String[] args) {
-        Organization org = new Organization("cts", "cts");
+    public static void main(String[] args) throws EB5Exceptions {
+        Organization org = new Organization("cts", "cts",null,null,null);
         OrganizationUser admin = new OrganizationUser("Admin@CTS", "cts");
         org.setPeerCount(2);
         admin.setMspId("cts");

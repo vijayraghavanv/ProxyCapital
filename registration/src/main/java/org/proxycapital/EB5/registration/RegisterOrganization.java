@@ -7,8 +7,6 @@ import org.apache.commons.logging.LogFactory;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.util.encoders.Hex;
 import org.hyperledger.fabric.sdk.Enrollment;
-import org.hyperledger.fabric.sdk.exception.CryptoException;
-import org.hyperledger.fabric.sdk.security.CryptoSuite;
 import org.hyperledger.fabric_ca.sdk.*;
 import org.hyperledger.fabric_ca.sdk.exception.AffiliationException;
 import org.hyperledger.fabric_ca.sdk.exception.EnrollmentException;
@@ -23,8 +21,6 @@ import org.proxycapital.Organization;
 import org.proxycapital.OrganizationUser;
 
 import java.io.*;
-import java.lang.reflect.InvocationTargetException;
-import java.net.MalformedURLException;
 import java.util.*;
 
 public class RegisterOrganization {
@@ -38,7 +34,7 @@ public class RegisterOrganization {
     private static final String DB_NAME = "userdb";
     private static final String DB_PROTOCOL = "http";
     private static final String DB_HOST = "127.0.0.1";
-    private final Properties props = new Properties();
+    private Properties props =null;
     private final File userHomeDir = FileUtils.getUserDirectory();
     private final CouchDbProperties couchDbProperties = new CouchDbProperties();
     private boolean isTLSEnabled = false;
@@ -66,6 +62,7 @@ public class RegisterOrganization {
             File certFile, boolean isTLSEnabled, Organization org, String caName, String caURL,
             String caHostName)
             throws EB5Exceptions {
+        logger.debug("The CA Host Name is: " + caHostName);
         this.isTLSEnabled = isTLSEnabled;
         this.org = org;
         this.caURL = caURL;
@@ -90,16 +87,27 @@ public class RegisterOrganization {
                 throw new EB5Exceptions("Certificate File missing");
             }
             else {
-                props.setProperty("pemFile", certFile.getAbsolutePath());
+                props=org.getProps();
                 try {
                     if (isTLSEnabled) {
+//                        File file = new File("/home/bitnami/ca-chain.pem");
+
+//                        CertificateFactory cf = CertificateFactory.getInstance("X.509");
+//                        X509Certificate certificate=(X509Certificate) cf.generateCertificate(new ByteArrayInputStream(org.getClient().info().getCACertificateChain().getBytes()));
+//                        byte[] buf = certificate.getEncoded();
+//                        FileOutputStream os = new FileOutputStream(file);
+//                        os.write(buf);
+//                        os.close();
+//                        Writer wr = new OutputStreamWriter(os, Charset.forName("UTF-8"));
+//                        wr.write(new sun.misc.BASE64Encoder().encode(buf));
+//                        wr.flush();
                         serverCert = FileUtils.readFileToString(certFile);
                     }
                     else {
                         serverCert = org.getClient().info().getCACertificateChain();
                     }
                 }
-                catch (IOException | InfoException | InvalidArgumentException e) {
+                catch ( InfoException | InvalidArgumentException | IOException e) {
                     logger.debug(e.getMessage());
                     throw new EB5Exceptions(e.getMessage());
                 }
@@ -381,10 +389,8 @@ public class RegisterOrganization {
      */
     public void generateMSP() throws EB5Exceptions {
         try {
-            HFCAClient caClient = HFCAClient.createNewInstance(caName, caURL, props);
-            caClient.setCryptoSuite(CryptoSuite.Factory.getCryptoSuite());
-            org.setCAClient(caClient);
-            caClient.newHFCAAffiliation("cts");
+            HFCAClient caClient = org.getClient();
+            caClient.newHFCAAffiliation(org.getName());
             enrollBootStrapAdmin();
             try {
                 logger.debug("Affiliations are: " + caClient.getHFCAAffiliations(bootstrapAdmin).getName());
@@ -409,21 +415,8 @@ public class RegisterOrganization {
             }
             generateTLSForNodes();
         }
-        catch (MalformedURLException e) {
-            logger.error("Wrong URL specified: " + caURL);
-            throw new EB5Exceptions(e.getMessage());
-        }
         catch (InvalidArgumentException e) {
             logger.debug(e.getStackTrace());
-            throw new EB5Exceptions(e.getMessage());
-        }
-        catch (InstantiationException e) {
-            logger.debug("Error in creating cryptosuite");
-            throw new EB5Exceptions(e.getMessage());
-        }
-        catch (InvocationTargetException | IllegalAccessException | org.hyperledger.fabric.sdk.exception
-                .InvalidArgumentException | NoSuchMethodException | CryptoException | ClassNotFoundException e) {
-            logger.debug(e.getMessage());
             throw new EB5Exceptions(e.getMessage());
         }
     }
@@ -434,6 +427,9 @@ public class RegisterOrganization {
             bootstrapAdmin = new OrganizationUser("admin", org.getName());
             bootstrapAdmin.setMspId(org.getMspID());
             try {
+                logger.debug("The certificate path is: " + props.getProperty("pemFile"));
+                logger.debug("The certificate is: " + serverCert);
+
                 bootstrapAdmin.setAffiliation(org.getName());
                 bootstrapAdminEnrollment = org.getClient().enroll(bootstrapAdmin.getName(), "adminpw");
                 bootstrapAdmin.setEnrollment(bootstrapAdminEnrollment);
@@ -512,7 +508,7 @@ public class RegisterOrganization {
             }
         }
         else {
-            throw new EB5Exceptions("User not found in local database. Please contact administrator");
+            logger.info(new String("User  " + user.getName()+" exists in the database"));
         }
     }
 
