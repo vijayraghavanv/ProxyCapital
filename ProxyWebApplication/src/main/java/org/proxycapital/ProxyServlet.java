@@ -1,16 +1,12 @@
-package org.proxycapital.web;
+package org.proxycapital;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.proxycapital.EB5.exceptions.EB5Exceptions;
 import org.proxycapital.EB5.registration.RegisterOrganization;
-import org.proxycapital.Organization;
-import org.proxycapital.OrganizationUser;
 
 import javax.servlet.ServletException;
-import javax.servlet.annotation.WebServlet;
-import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.File;
@@ -19,9 +15,10 @@ import java.io.PrintWriter;
 import java.nio.file.Paths;
 import java.util.Properties;
 
-@WebServlet(name = "/servlets/register")
-public class UserRegistration extends HttpServlet {
-    private static final Log logger = LogFactory.getLog(UserRegistration.class);
+@javax.servlet.annotation.WebServlet(name = "/servlets/ProxyServlet")
+public class ProxyServlet extends javax.servlet.http.HttpServlet {
+
+    private static final Log logger = LogFactory.getLog(ProxyServlet.class);
     private static String SECRET = "mysecret";
     private static String REGISTRARROLES_ORDERER = "peer,client";
     private static String REGISTRARROLES_PEER = "peer,client,orderer";
@@ -31,18 +28,22 @@ public class UserRegistration extends HttpServlet {
     private static String CA_CERT_FILE_PATH = FileUtils.getUserDirectoryPath() + File.separator + "fabric-ca" + File
             .separator + "server";
 
-    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException,
+    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException,
                                                                                            IOException {
         doGet(request, response);
         logger.debug("Inside Post");
     }
 
-    protected void doGet(HttpServletRequest request, HttpServletResponse response)  {
+    protected void doPost(HttpServletRequest request, HttpServletResponse response)  {
         logger.debug("Inside the servlet!!");
-        String caName = request.getParameter("caName");
-        String caURL = request.getParameter("caURL");
-        String orgName = request.getParameter("orgName");
-        String projectName = request.getParameter("projectName");
+//        String caName = request.getParameter("caName");
+        String caName="localhost";
+//        String caURL = request.getParameter("caURL");
+        String caURL="http://localhost:7054";
+//        String orgName = request.getParameter("orgName");
+        String orgName="ProxyCapital";
+//        String projectName = request.getParameter("projectName");
+        String projectName=null;
         PrintWriter writer=null;
         try {
             setup(caName, caURL, orgName, projectName);
@@ -74,7 +75,7 @@ public class UserRegistration extends HttpServlet {
     }
 
     private void setup(String caName, String caURL, String orgName, String projectName) throws EB5Exceptions {
-        boolean orderer = false;
+        boolean orderer = true;
         Properties props = new Properties();
         File certFile = Paths.get(CA_CERT_FILE_PATH + File
                 .separator + CA_CERT_FILE_NAME).toFile();
@@ -88,6 +89,7 @@ public class UserRegistration extends HttpServlet {
         logger.debug("The property file path is: " + props.get("pemFile"));
         Organization org = new Organization(orgName, orgName, caName, caURL, props);
         OrganizationUser admin = new OrganizationUser("Admin@" + orgName.toUpperCase(), orgName);
+        org.setHasOrderer(true);
         org.setPeerCount(2);
         admin.setMspId(org.getMspID());
         admin.setEnrollmentSecret(SECRET);

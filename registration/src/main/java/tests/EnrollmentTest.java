@@ -53,7 +53,7 @@ public class EnrollmentTest {
                                                             org,
                                                             "ProxyRoot",
                                                             "https://blockchain001:7054",
-                                                            "blockchain001");
+                                                            "blockchain001","test");
         }
         catch (EB5Exceptions eb5Exceptions) {
             eb5Exceptions.printStackTrace();

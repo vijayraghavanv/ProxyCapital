@@ -18,6 +18,22 @@
           <option name="port" value="22" />
         </fileTransfer>
       </webServer>
+      <webServer id="a8a4048e-518d-4838-a822-98051c779b3a" name="ProxyClient" url="http://18.191.226.253">
+        <fileTransfer host="18.191.226.253" port="22" privateKey="$PROJECT_DIR$/../../../Security/VijayProxy.pem" accessType="SFTP" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" />
+          </advancedOptions>
+          <option name="port" value="22" />
+        </fileTransfer>
+      </webServer>
+      <webServer id="352c202d-91c2-43d4-b6de-6284061824aa" name="ProxyMain" url="http://18.191.231.238">
+        <fileTransfer host="18.191.231.238" port="22" privateKey="$PROJECT_DIR$/../../../Security/VijayProxy.pem" accessType="SFTP" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" />
+          </advancedOptions>
+          <option name="port" value="22" />
+        </fileTransfer>
+      </webServer>
     </option>
   </component>
 </project>

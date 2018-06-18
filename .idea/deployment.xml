@@ -20,6 +20,21 @@
           </mappings>
         </serverdata>
       </paths>
+      <paths name="ProxyClient">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/opt/bitnami/apache-tomcat/webapps" local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/opt/bitnami/apache-tomcat/webapps/UserRegistration" local="$PROJECT_DIR$/UserRegistration" web="/UserRegistration" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="ProxyMain">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/opt/bitnami/apache-tomcat/webapps" local="$PROJECT_DIR$/ProxyWebApplication" web="/ProxyWebApplication" />
+          </mappings>
+        </serverdata>
+      </paths>
     </serverData>
   </component>
 </project>

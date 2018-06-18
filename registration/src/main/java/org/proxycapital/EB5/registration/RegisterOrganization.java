@@ -2,13 +2,14 @@ package org.proxycapital.EB5.registration;
 
 import com.google.gson.JsonObject;
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.util.encoders.Hex;
 import org.hyperledger.fabric.sdk.Enrollment;
 import org.hyperledger.fabric_ca.sdk.*;
-import org.hyperledger.fabric_ca.sdk.exception.AffiliationException;
+//import org.hyperledger.fabric_ca.sdk.exception.AffiliationException;
 import org.hyperledger.fabric_ca.sdk.exception.EnrollmentException;
 import org.hyperledger.fabric_ca.sdk.exception.InfoException;
 import org.hyperledger.fabric_ca.sdk.exception.InvalidArgumentException;
@@ -19,6 +20,7 @@ import org.proxycapital.EB5.Utils.Utils;
 import org.proxycapital.EB5.exceptions.EB5Exceptions;
 import org.proxycapital.Organization;
 import org.proxycapital.OrganizationUser;
+import org.proxycapital.utils.AWSClient;
 
 import java.io.*;
 import java.util.*;
@@ -31,6 +33,7 @@ public class RegisterOrganization {
     private static final Log logger = LogFactory.getLog(RegisterOrganization.class);
     private static final String ORDERER_HOME = System.getProperty("user.home") + "/cryptoconfig/ordererOrganizations";
     private static final String PEER_HOME = System.getProperty("user.home") + "/cryptoconfig/peerOrganizations";
+    private static final String CRYPTO_HOME=System.getProperty("user.home") + "/cryptoconfig";
     private static final String DB_NAME = "userdb";
     private static final String DB_PROTOCOL = "http";
     private static final String DB_HOST = "127.0.0.1";
@@ -47,6 +50,8 @@ public class RegisterOrganization {
     private String serverCert = null;
     private OrganizationUser bootstrapAdmin = null;
     private CouchDbClient dbClient = null;
+    private String cryptoFileName=null;
+    private String projectName=null;
 
     /**
      * Register an Organization and generate MSPs for the org. A folder "cryptoconfig" is generated in the home
@@ -60,7 +65,7 @@ public class RegisterOrganization {
      */
     public RegisterOrganization(
             File certFile, boolean isTLSEnabled, Organization org, String caName, String caURL,
-            String caHostName)
+            String caHostName, String projectName)
             throws EB5Exceptions {
         logger.debug("The CA Host Name is: " + caHostName);
         this.isTLSEnabled = isTLSEnabled;
@@ -68,6 +73,14 @@ public class RegisterOrganization {
         this.caURL = caURL;
         this.caName = caName;
         this.caHostName = caHostName;
+        this.projectName=projectName;
+        if(projectName!=null) {
+            cryptoFileName = projectName + "-" + org.getName() + ".zip";
+        }
+        else{
+            cryptoFileName=org.getName()+".zip"; //Generate crypto not specific to a project. Used for proxycapital
+
+        }
         Utils.createDirectory(userHomeDir.getAbsolutePath(), "cryptoconfig");
         cryptoDir = new File(userHomeDir.getAbsolutePath() + File.separator + "cryptoconfig");
         initDB();
@@ -90,17 +103,6 @@ public class RegisterOrganization {
                 props=org.getProps();
                 try {
                     if (isTLSEnabled) {
-//                        File file = new File("/home/bitnami/ca-chain.pem");
-
-//                        CertificateFactory cf = CertificateFactory.getInstance("X.509");
-//                        X509Certificate certificate=(X509Certificate) cf.generateCertificate(new ByteArrayInputStream(org.getClient().info().getCACertificateChain().getBytes()));
-//                        byte[] buf = certificate.getEncoded();
-//                        FileOutputStream os = new FileOutputStream(file);
-//                        os.write(buf);
-//                        os.close();
-//                        Writer wr = new OutputStreamWriter(os, Charset.forName("UTF-8"));
-//                        wr.write(new sun.misc.BASE64Encoder().encode(buf));
-//                        wr.flush();
                         serverCert = FileUtils.readFileToString(certFile);
                     }
                     else {
@@ -165,6 +167,14 @@ public class RegisterOrganization {
             File ordererHome = new File(path + "/" + org.getName());
             Utils.createDirectory(ordererHome.getAbsolutePath(), "orderers");
             Utils.createDirectory(ordererHome.getAbsolutePath(), "ca");
+            try {
+                FileUtils.forceMkdir(new File(ordererHome.getAbsolutePath() + File.separator+"ca"+File.separator+"root"));
+            }
+            catch (IOException e) {
+                logger.debug(e.getMessage());
+                throw new EB5Exceptions(e.getMessage());
+            }
+
             Utils.createDirectory(ordererHome.getAbsolutePath(), "msp");
             Utils.createDirectory(ordererHome.getAbsolutePath(), "users");
         }
@@ -172,6 +182,13 @@ public class RegisterOrganization {
             File peerHome = new File(path + "/" + org.getName());
             Utils.createDirectory(peerHome.getAbsolutePath(), "peers");
             Utils.createDirectory(peerHome.getAbsolutePath(), "ca");
+            try {
+                FileUtils.forceMkdir(new File(peerHome.getAbsolutePath() + File.separator+"ca"+File.separator+"root"));
+            }
+            catch (IOException e) {
+                logger.debug(e.getMessage());
+                throw new EB5Exceptions(e.getMessage());
+            }
             Utils.createDirectory(peerHome.getAbsolutePath(), "msp");
             Utils.createDirectory(peerHome.getAbsolutePath(), "users");
         }
@@ -187,6 +204,8 @@ public class RegisterOrganization {
             FileUtils.forceMkdir(new File(rootPath + "/msp/" + "tlscacerts"));
             FileUtils.forceMkdir(new File(rootPath + "/msp/" + "signcerts"));
             FileUtils.forceMkdir(new File(rootPath + "/msp/" + "cacerts"));
+            FileUtils.forceMkdir(new File(rootPath + "/msp/" + "admincerts"));
+
             bw = new BufferedWriter(new FileWriter(rootPath + "/tls/server.crt"));
             bw1 = new BufferedWriter(new FileWriter(rootPath + "/tls/server.key"));
             bw2 = new BufferedWriter(new FileWriter(rootPath + "/msp/signcerts/" + host + "-cert.pem"));
@@ -201,6 +220,7 @@ public class RegisterOrganization {
             FileUtils.copyFile(new File(rootPath + "/tls/server.key"), new File(rootPath + "/msp/keystore/server.key"));
             storeCaCertFile(rootPath + "/msp/tlscacerts/tlsca." + org.getName() + "-cert.pem");
             storeCaCertFile(rootPath + "/msp/cacerts/" + org.getName() + "-cert.pem");
+            FileUtils.copyFile(new File(rootPath + "/msp/signcerts/" + host + "-cert.pem"),new File(rootPath+File.separator+"msp"+File.separator+"admincerts"+File.separator+"Admin@"+org.getName()+".pem"));
         }
         catch (IOException e) {
             logger.debug(e.getMessage());
@@ -247,6 +267,8 @@ public class RegisterOrganization {
         Utils.createDirectory(mspPath, "keystore");
         Utils.createDirectory(mspPath, "cacerts");
         Utils.createDirectory(mspPath, "intermediatecerts");
+        Utils.createDirectory(mspPath, "admincerts");
+
         try {
             bw = new BufferedWriter(new FileWriter(mspPath + "/signcerts/" + userName + "cert.pem"));
             String certPEM = enrollment.getCert();
@@ -259,6 +281,7 @@ public class RegisterOrganization {
             pemWriter.close();
             bw1.write(pemsWriter.toString());
             storeCaCertFile(mspPath + "/cacerts/" + org.getName() + "-cert.pem");
+            FileUtils.copyFile(new File(mspPath + "/signcerts/" + userName + "cert.pem"),new File(mspPath+File.separator+"admincerts"+File.separator+"Admin@"+org.getName()+".pem"));
 //            File caCertFileSource=new File()
         }
         catch (IOException e) {
@@ -344,13 +367,15 @@ public class RegisterOrganization {
 
     private void generateTLSForNodes() throws EB5Exceptions {
         String orgDir;
+        String caDir;
         if (org.hasOrderer()) {
-            orgDir = ORDERER_HOME + "/" + org.getName();
+            caDir = ORDERER_HOME + File.separator + org.getName()+File.separator+"ca";
+            orgDir=ORDERER_HOME+File.separator+org.getName();
             //Create ca root
             ArrayList<String> hosts = new ArrayList<>(2);
             hosts.add("root");
             hosts.add("root");
-            generateTLS(orgDir, hosts, "ca");
+            generateTLS(caDir, hosts, "root");
             //End CA Root creation
             ArrayList<String> ordererHosts = new ArrayList<>(2);
             String ordererName = "orderer" + "." + org.getName();
@@ -360,12 +385,13 @@ public class RegisterOrganization {
             generateTLS(ordererOrgDir, ordererHosts, ordererName);
         }
         if (org.hasPeers()) {
-            orgDir = PEER_HOME + "/" + org.getName();
+            caDir = PEER_HOME + File.separator + org.getName()+File.separator+"ca";
+            orgDir=PEER_HOME+File.separator+org.getName();
             //Create ca root
             ArrayList<String> hosts = new ArrayList<>(2);
             hosts.add("root");
             hosts.add("root");
-            generateTLS(orgDir, hosts, "ca");
+            generateTLS(caDir, hosts, "root");
             //End CA Root creation
             int peerCount = org.getPeerCount();
             while (peerCount > 0) {
@@ -388,35 +414,43 @@ public class RegisterOrganization {
      * @throws EB5Exceptions
      */
     public void generateMSP() throws EB5Exceptions {
-        try {
-            HFCAClient caClient = org.getClient();
-            caClient.newHFCAAffiliation(org.getName());
-            enrollBootStrapAdmin();
-            try {
-                logger.debug("Affiliations are: " + caClient.getHFCAAffiliations(bootstrapAdmin).getName());
-            }
-            catch (AffiliationException e) {
-                logger.debug(e.getMessage());
-                throw new EB5Exceptions(e.getMessage());
-            }
-            if (org.hasOrderer()) {
-                String path = ORDERER_HOME + "/" + org.getName();
-                createMSPStructure(path,
-                                   "rootAdmin",
-                                   bootstrapAdmin.getEnrollment());//Create root admin under orderers.
-                generateMSPForUsers(path);
-            }
-            if (org.hasPeers()) {
-                String path = PEER_HOME + "/" + org.getName();
-                createMSPStructure(path,
-                                   "rootAdmin",
-                                   bootstrapAdmin.getEnrollment()); //Create root admin under peer directory.
-                generateMSPForUsers(path);
-            }
-            generateTLSForNodes();
+        HFCAClient caClient = org.getClient();
+        enrollBootStrapAdmin();
+        if (org.hasOrderer()) {
+            String path = ORDERER_HOME + "/" + org.getName();
+            createMSPStructure(path,
+                               "rootAdmin",
+                               bootstrapAdmin.getEnrollment());//Create root admin under orderers.
+            generateMSPForUsers(path);
+            generateMSPForOrg(path);
         }
-        catch (InvalidArgumentException e) {
-            logger.debug(e.getStackTrace());
+        if (org.hasPeers()) {
+            String path = PEER_HOME + "/" + org.getName();
+            createMSPStructure(path,
+                               "rootAdmin",
+                               bootstrapAdmin.getEnrollment()); //Create root admin under peer directory.
+            generateMSPForUsers(path);
+            generateMSPForOrg(path);
+        }
+
+        generateTLSForNodes();
+
+        AWSClient.zipAndStoreInS3(new File(CRYPTO_HOME),cryptoFileName,null);
+    }
+
+    private void generateMSPForOrg(final String rootPath) throws EB5Exceptions {
+        try {
+            FileUtils.forceMkdir(new File(rootPath + "/msp/" + "keystore"));
+            FileUtils.forceMkdir(new File(rootPath + "/msp/" + "tlscacerts"));
+            FileUtils.forceMkdir(new File(rootPath + "/msp/" + "signcerts"));
+            FileUtils.forceMkdir(new File(rootPath + "/msp/" + "cacerts"));
+            FileUtils.forceMkdir(new File(rootPath + "/msp/" + "admincerts"));
+            storeCaCertFile(rootPath+File.separator+"msp"+File.separator+"cacerts"+File.separator+"ca."+org.getName()+"-cert.pem");
+            FileUtils.copyFile(new File(rootPath+File.separator+"msp"+File.separator+"cacerts"+File.separator+"ca."+org.getName()+"-cert.pem"),new File(rootPath+File.separator+"msp"+File.separator+"signcerts"+File.separator+org.getName()+"-cert.pem"));
+            FileUtils.copyFile(new File(rootPath+File.separator+"msp"+File.separator+"signcerts"+File.separator+org.getName()+"-cert.pem"),new File(rootPath+File.separator+"msp"+File.separator+"admincerts"+File.separator+"Admin@"+org.getName()+"-cert.pem"));
+        }
+        catch (IOException | EB5Exceptions e) {
+            logger.debug(e.getMessage());
             throw new EB5Exceptions(e.getMessage());
         }
     }
@@ -430,7 +464,7 @@ public class RegisterOrganization {
                 logger.debug("The certificate path is: " + props.getProperty("pemFile"));
                 logger.debug("The certificate is: " + serverCert);
 
-                bootstrapAdmin.setAffiliation(org.getName());
+//                bootstrapAdmin.setAffiliation(org.getName());
                 bootstrapAdminEnrollment = org.getClient().enroll(bootstrapAdmin.getName(), "adminpw");
                 bootstrapAdmin.setEnrollment(bootstrapAdminEnrollment);
             }
@@ -458,8 +492,9 @@ public class RegisterOrganization {
                 }
             }
             if (!isRegistered) {
-                RegistrationRequest rr = new RegistrationRequest(registreeUser.getName(),
-                                                                 registreeUser.getAffiliation());
+                RegistrationRequest rr = new RegistrationRequest(registreeUser.getName());
+//                RegistrationRequest rr = new RegistrationRequest(registreeUser.getName(),
+//                                                                 registreeUser.getAffiliation());
                 if (registreeUser.getAttributes() != null) {
                     for (final Object o : registreeUser.getAttributes().entrySet()) {
                         Map.Entry pair = (Map.Entry) o;

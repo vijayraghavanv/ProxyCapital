@@ -42,7 +42,7 @@ public class Organization {
         try {
             caClient = HFCAClient.createNewInstance(caName, caURL, props);
             caClient.setCryptoSuite(CryptoSuite.Factory.getCryptoSuite());
-            caClient.newHFCAAffiliation(this.getName());
+//            caClient.newHFCAAffiliation(this.getName());
         }
         catch (IllegalAccessException | InstantiationException | ClassNotFoundException | CryptoException | InvalidArgumentException | NoSuchMethodException | InvocationTargetException | org.hyperledger.fabric_ca.sdk.exception.InvalidArgumentException | MalformedURLException e) {
             throw new EB5Exceptions(e.getMessage());
